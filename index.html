@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="View JSON treemap data online">
+    <meta name="theme-color" content="#ffffff">
+
+    <title>Online Treemap Viewer</title>
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Bungee+Shade">
+    
+    <style>
+        #banner {
+            font-family: 'Bungee Shade', serif;
+            font-size: 32px;
+        }
+
+        #file-input {
+            border: 10px dashed #cfcfcf;
+            max-width:  360px; 
+            height: 256px; 
+            margin: 20px auto; 
+            text-align: center;
+        } 
+        
+        #file-input.file-input-hover { 
+            border: 10px dashed #69a6e7;
+        }
+
+        #file-input-description {
+            margin-top: 64px;
+            color: grey;
+            line-height: 2;
+        }
+
+        .header-container {
+            max-width: 700px;
+            margin: auto;
+        }
+
+        #header {
+            text-align: center;
+        }
+
+        #description {
+            color: grey;
+        }
+
+        .code {
+            background-color: rgba(27,31,35,0.05);
+            border-radius: 3px;
+            text-align: left;
+        }
+
+        .example-file-link {
+            color: #69a6e7;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        #details-slider-input-container {
+            width: 100%;
+        }
+        
+        #details-slider-input {
+            max-width: 200px;
+        }
+
+        #download-button {
+            color: #69a6e7;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+    </style>
+
+    <script async defer src="https://buttons.github.io/buttons.js"></script>
+</head>
+<body>
+    <div class="header-container">
+        <div id="header">
+            <p id="banner">Treemap.dev</p>
+            <p id="description"><i>Generate treemap from JSON. Works offline. Nothing is uploaded. <a class="example-file-link" href="https://github.com/tannewt/treemap.dev">Source</a></i></p>
+            <div id="button-row">
+                <a class="github-button" href="https://github.com/tannewt/treemap.dev" data-icon="octicon-star" data-size="small" data-show-count="true" aria-label="Star tannewt/treemap.dev on GitHub">Star</a>
+            </div>
+            <div id="details-slider-input-container" style="display: none;">
+                <input type="range" min="20" max="300" value="100" class="slider" id="details-slider-input">
+                <br>
+                <a id="download-button" download="" href="" role="button">
+                <i>Download</i>
+                </a>
+            </div>
+        </div>
+        <div id="file-input">
+            <div id="file-input-description">
+                <i>Drag & Drop your json here</i>
+                <br>
+                Nested JSON objects. All have `name`, parents have a list of `children` and leaves have `value`.
+                <br>
+                <i>or</i>
+                <br>
+                <i>load example</i>
+                <a id="example-hugo" class="example-file-link">hugo</a>
+                <a id="example-chi" class="example-file-link">chi</a>
+                <a id="example-gin" class="example-file-link">gin</a>
+            </div>
+        </div>
+    </div>
+    <div id="output-container" style="width: 100%;"></div>
+</body>
+<script type="module">
+
+import * as d3 from "https://cdn.skypack.dev/d3@7";
+
+console.log(d3);
+
+let fileInput = document.getElementById("file-input");
+
+function graph(data) {
+  const x = d3.scaleLinear().rangeRound([0, width]);
+  const y = d3.scaleLinear().rangeRound([0, height]);
+
+  const svg = d3.create("svg")
+      .attr("viewBox", [0.5, -30.5, width, height + 30])
+      .style("font", "10px sans-serif");
+
+  let group = svg.append("g")
+      .call(render, treemap(data));
+
+  function render(group, root) {
+    const node = group
+      .selectAll("g")
+      .data(root.children.concat(root))
+      .join("g");
+
+    node.filter(d => d === root ? d.parent : d.children)
+        .attr("cursor", "pointer")
+        .on("click", (event, d) => d === root ? zoomout(root) : zoomin(d));
+
+    node.append("title")
+        .text(d => `${name(d)}\n${format(d.value)}`);
+
+    node.append("rect")
+        .attr("id", d => (d.leafUid = DOM.uid("leaf")).id)
+        .attr("fill", d => d === root ? "#fff" : d.children ? "#ccc" : "#ddd")
+        .attr("stroke", "#fff");
+
+    node.append("clipPath")
+        .attr("id", d => (d.clipUid = DOM.uid("clip")).id)
+      .append("use")
+        .attr("xlink:href", d => d.leafUid.href);
+
+    node.append("text")
+        .attr("clip-path", d => d.clipUid)
+        .attr("font-weight", d => d === root ? "bold" : null)
+      .selectAll("tspan")
+      .data(d => (d === root ? name(d) : d.data.name).split(/(?=[A-Z][^A-Z])/g).concat(format(d.value)))
+      .join("tspan")
+        .attr("x", 3)
+        .attr("y", (d, i, nodes) => `${(i === nodes.length - 1) * 0.3 + 1.1 + i * 0.9}em`)
+        .attr("fill-opacity", (d, i, nodes) => i === nodes.length - 1 ? 0.7 : null)
+        .attr("font-weight", (d, i, nodes) => i === nodes.length - 1 ? "normal" : null)
+        .text(d => d);
+
+    group.call(position, root);
+  }
+
+  function position(group, root) {
+    group.selectAll("g")
+        .attr("transform", d => d === root ? `translate(0,-30)` : `translate(${x(d.x0)},${y(d.y0)})`)
+      .select("rect")
+        .attr("width", d => d === root ? width : x(d.x1) - x(d.x0))
+        .attr("height", d => d === root ? 30 : y(d.y1) - y(d.y0));
+  }
+
+  // When zooming in, draw the new nodes on top, and fade them in.
+  function zoomin(d) {
+    const group0 = group.attr("pointer-events", "none");
+    const group1 = group = svg.append("g").call(render, d);
+
+    x.domain([d.x0, d.x1]);
+    y.domain([d.y0, d.y1]);
+
+    svg.transition()
+        .duration(750)
+        .call(t => group0.transition(t).remove()
+          .call(position, d.parent))
+        .call(t => group1.transition(t)
+          .attrTween("opacity", () => d3.interpolate(0, 1))
+          .call(position, d));
+  }
+
+  // When zooming out, draw the old nodes on top, and fade them out.
+  function zoomout(d) {
+    const group0 = group.attr("pointer-events", "none");
+    const group1 = group = svg.insert("g", "*").call(render, d.parent);
+
+    x.domain([d.parent.x0, d.parent.x1]);
+    y.domain([d.parent.y0, d.parent.y1]);
+
+    svg.transition()
+        .duration(750)
+        .call(t => group0.transition(t).remove()
+          .attrTween("opacity", () => d3.interpolate(1, 0))
+          .call(position, d))
+        .call(t => group1.transition(t)
+          .call(position, d.parent));
+  }
+
+  return svg.node();
+} 
+
+function onFileDrop(event) {
+    console.log("drop");
+    event.preventDefault();
+
+    if (event.dataTransfer.items) {
+        // Use DataTransferItemList interface to access the file(s)
+        for (var i = 0; i < event.dataTransfer.items.length; i++) {
+          // If dropped items aren't files, reject them
+          if (event.dataTransfer.items[i].kind === 'file') {
+            var file = event.dataTransfer.items[i].getAsFile();
+            console.log(file);
+            console.log('... file[' + i + '].name = ' + file.name);
+            let fr = new FileReader();
+            fr.onload = function() {
+                console.log(JSON.parse(this.result));
+            }
+            fr.readAsText(file);
+            break;
+          }
+        }
+      } else {
+        // Use DataTransfer interface to access the file(s)
+        for (var i = 0; i < event.dataTransfer.files.length; i++) {
+          console.log('... file[' + i + '].name = ' + event.dataTransfer.files[i].name);
+        }
+      }
+}
+
+function onDragOver(event) {
+    console.log("over");
+    event.preventDefault();
+    document.getElementById("file-input").className = "file-input-hover";
+}
+
+function onDragEnd(event) {
+    document.getElementById("file-input").className = "";
+}
+
+fileInput.ondragover = onDragOver;
+console.log(fileInput, onDragOver);
+fileInput.ondragend = onDragEnd;
+fileInput.ondragleave = onDragEnd;
+fileInput.ondrop = onFileDrop;
+
+// document.Call("getElementById", "example-chi").Set("onclick", js.FuncOf(renderer.NewOnClickExample("/examples/chi.cover")))
+// document.Call("getElementById", "example-gin").Set("onclick", js.FuncOf(renderer.NewOnClickExample("/examples/gin.cover")))
+// document.Call("getElementById", "example-hugo").Set("onclick", js.FuncOf(renderer.NewOnClickExample("/examples/hugo.cover")))
+
+</script>
+</html>

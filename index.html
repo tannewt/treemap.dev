@@ -6,13 +6,11 @@
     <meta name="description" content="View JSON treemap data online">
     <meta name="theme-color" content="#ffffff">
 
-    <title>Online Treemap Viewer</title>
-
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Bungee+Shade">
+    <title>treemap.dev Treemap Viewer</title>
     
     <style>
         #banner {
-            font-family: 'Bungee Shade', serif;
+            font-family: monospace;
             font-size: 32px;
         }
 
@@ -29,7 +27,7 @@
         }
 
         #file-input-description {
-            margin-top: 64px;
+            margin-top: 4px;
             color: grey;
             line-height: 2;
         }
@@ -37,6 +35,7 @@
         .header-container {
             max-width: 700px;
             margin: auto;
+            flex: 0 1 auto;
         }
 
         #header {
@@ -59,76 +58,114 @@
             cursor: pointer;
         }
 
-        #details-slider-input-container {
-            width: 100%;
-        }
-        
-        #details-slider-input {
-            max-width: 200px;
+        html, body {
+            height: 100%;
+            margin:  0;
         }
 
-        #download-button {
-            color: #69a6e7;
-            text-decoration: underline;
-            cursor: pointer;
+        .box {
+            display: flex;
+            flex-flow: column;
+            height: 100%;
+        }
+
+        #output-container {
+            flex: 1 1 auto;
         }
     </style>
 
     <script async defer src="https://buttons.github.io/buttons.js"></script>
+    <script defer data-domain="treemap.dev" src="https://plausible.io/js/plausible.js"></script>
 </head>
 <body>
+    <div class="box">
     <div class="header-container">
         <div id="header">
-            <p id="banner">Treemap.dev</p>
-            <p id="description"><i>Generate treemap from JSON. Works offline. Nothing is uploaded. <a class="example-file-link" href="https://github.com/tannewt/treemap.dev">Source</a></i></p>
+            <p id="banner">treemap.dev</p>
+            <p id="description"><i>Generate treemap <a href="https://github.com/d3/d3-hierarchy">from JSON</a>. Works offline. Nothing is uploaded. Reload to reset.<a class="example-file-link" href="https://github.com/tannewt/treemap.dev">Source</a></i></p>
             <div id="button-row">
                 <a class="github-button" href="https://github.com/tannewt/treemap.dev" data-icon="octicon-star" data-size="small" data-show-count="true" aria-label="Star tannewt/treemap.dev on GitHub">Star</a>
-            </div>
-            <div id="details-slider-input-container" style="display: none;">
-                <input type="range" min="20" max="300" value="100" class="slider" id="details-slider-input">
-                <br>
-                <a id="download-button" download="" href="" role="button">
-                <i>Download</i>
-                </a>
             </div>
         </div>
         <div id="file-input">
             <div id="file-input-description">
                 <i>Drag & Drop your json here</i>
                 <br>
-                Nested JSON objects. All have `name`, parents have a list of `children` and leaves have `value`.
+                <a href="https://github.com/d3/d3-hierarchy" class="example-file-link">Nested JSON objects.</a> All have <code>name</code>, parents have arrays of <code>children</code> and leaves have <code>value</code>.
+                <br>
+                <i>or</i>
+                <br>
+                <input type="file" id="file-selector" accept=".json">
                 <br>
                 <i>or</i>
                 <br>
                 <i>load example</i>
-                <a id="example-hugo" class="example-file-link">hugo</a>
-                <a id="example-chi" class="example-file-link">chi</a>
-                <a id="example-gin" class="example-file-link">gin</a>
+                <a id="example-cp" class="example-file-link">circuitpython</a> (<a href="https://github.com/tannewt/treemap.dev/blob/main/examples/circuitpython-sizes.json" class="example-file-link">source</a>)
             </div>
         </div>
     </div>
     <div id="output-container" style="width: 100%;"></div>
+</div>
 </body>
 <script type="module">
-
 import * as d3 from "https://cdn.skypack.dev/d3@7";
 
-console.log(d3);
-
 let fileInput = document.getElementById("file-input");
+let outputContainer = document.getElementById("output-container");
+
+var width = outputContainer.offsetWidth;
+var height = outputContainer.offsetHeight;
+function tile(node, x0, y0, x1, y1) {
+  d3.treemapBinary(node, 0, 0, width, height);
+  for (const child of node.children) {
+    child.x0 = x0 + child.x0 / width * (x1 - x0);
+    child.x1 = x0 + child.x1 / width * (x1 - x0);
+    child.y0 = y0 + child.y0 / height * (y1 - y0);
+    child.y1 = y0 + child.y1 / height * (y1 - y0);
+  }
+}
+
+function name(d) {
+    return d.ancestors().reverse().map(d => d.data.name).join("/");
+}
+
+let format = d3.format(",d");
+
+var count = 0;
+
+function Id(id) {
+  this.id = id;
+  this.href = new URL(`#${id}`, location) + "";
+}
+
+function make_id(name) {
+  return new Id("O-" + (name == null ? "" : name + "-") + ++count);
+}
 
 function graph(data) {
   const x = d3.scaleLinear().rangeRound([0, width]);
   const y = d3.scaleLinear().rangeRound([0, height]);
 
-  const svg = d3.create("svg")
+  width = outputContainer.offsetWidth;
+  height = outputContainer.offsetHeight - 35;
+  console.log(width, height);
+
+  const svg = d3.select("#output-container")
+      .append("svg")
       .attr("viewBox", [0.5, -30.5, width, height + 30])
       .style("font", "10px sans-serif");
+
+  let treemap = data => d3.treemap()
+    .tile(tile)
+  (d3.hierarchy(data)
+    .sum(d => d.value)
+    .sort((a, b) => b.value - a.value));
 
   let group = svg.append("g")
       .call(render, treemap(data));
 
   function render(group, root) {
+    console.log("render", root);
     const node = group
       .selectAll("g")
       .data(root.children.concat(root))
@@ -142,12 +179,12 @@ function graph(data) {
         .text(d => `${name(d)}\n${format(d.value)}`);
 
     node.append("rect")
-        .attr("id", d => (d.leafUid = DOM.uid("leaf")).id)
+        .attr("id", d => (d.leafUid = make_id("leaf")).id)
         .attr("fill", d => d === root ? "#fff" : d.children ? "#ccc" : "#ddd")
         .attr("stroke", "#fff");
 
     node.append("clipPath")
-        .attr("id", d => (d.clipUid = DOM.uid("clip")).id)
+        .attr("id", d => (d.clipUid = make_id("clip")).id)
       .append("use")
         .attr("xlink:href", d => d.leafUid.href);
 
@@ -207,12 +244,35 @@ function graph(data) {
         .call(t => group1.transition(t)
           .call(position, d.parent));
   }
+}
 
-  return svg.node();
-} 
+function load(file) {
+    let fr = new FileReader();
+    fr.onload = function() {
+        let data = JSON.parse(this.result);
+        console.log(data);
+        graph(data);
+    }
+    fileInput.remove();
+    fr.readAsText(file);
+}
+
+function load_example(url) {
+    var xobj = new XMLHttpRequest();
+    xobj.overrideMimeType("application/json");
+    xobj.open('GET', url, true);
+    xobj.onreadystatechange = function () {
+        if (xobj.readyState == 4 && xobj.status == "200") {
+            let data = JSON.parse(xobj.responseText);
+            console.log(data);
+            graph(data);
+        }
+    };
+    fileInput.remove();
+    xobj.send(null);  
+}
 
 function onFileDrop(event) {
-    console.log("drop");
     event.preventDefault();
 
     if (event.dataTransfer.items) {
@@ -221,13 +281,7 @@ function onFileDrop(event) {
           // If dropped items aren't files, reject them
           if (event.dataTransfer.items[i].kind === 'file') {
             var file = event.dataTransfer.items[i].getAsFile();
-            console.log(file);
-            console.log('... file[' + i + '].name = ' + file.name);
-            let fr = new FileReader();
-            fr.onload = function() {
-                console.log(JSON.parse(this.result));
-            }
-            fr.readAsText(file);
+            load(file);
             break;
           }
         }
@@ -239,8 +293,14 @@ function onFileDrop(event) {
       }
 }
 
+const fileSelector = document.getElementById('file-selector');
+
+fileSelector.addEventListener('change', (event) => {
+    const fileList = event.target.files;
+    load(fileList[0])
+});
+
 function onDragOver(event) {
-    console.log("over");
     event.preventDefault();
     document.getElementById("file-input").className = "file-input-hover";
 }
@@ -250,14 +310,12 @@ function onDragEnd(event) {
 }
 
 fileInput.ondragover = onDragOver;
-console.log(fileInput, onDragOver);
 fileInput.ondragend = onDragEnd;
 fileInput.ondragleave = onDragEnd;
 fileInput.ondrop = onFileDrop;
 
-// document.Call("getElementById", "example-chi").Set("onclick", js.FuncOf(renderer.NewOnClickExample("/examples/chi.cover")))
-// document.Call("getElementById", "example-gin").Set("onclick", js.FuncOf(renderer.NewOnClickExample("/examples/gin.cover")))
-// document.Call("getElementById", "example-hugo").Set("onclick", js.FuncOf(renderer.NewOnClickExample("/examples/hugo.cover")))
-
+document.getElementById("example-cp").onclick = function (event) {
+    load_example("/examples/circuitpython-sizes.json");
+}
 </script>
 </html>
